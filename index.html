@@ -1883,7 +1883,10 @@
       `).join("");
 
       const selectedPaymentOrder = orders.find((order) => order.id === Number(document.getElementById("paymentOrder").value)) || orders[0];
-      document.getElementById("updatePaidAmount").value = selectedPaymentOrder ? getPaidAmount(selectedPaymentOrder) : "";
+      document.getElementById("paymentOrder").value = selectedPaymentOrder ? selectedPaymentOrder.id : "";
+      document.getElementById("updatePaidAmount").placeholder = selectedPaymentOrder
+        ? `Current paid: ${formatMoney(getPaidAmount(selectedPaymentOrder))}`
+        : "0";
 
       document.getElementById("unpaidList").innerHTML = dueOrders.map((order) => `
         <article class="due-card">
@@ -1944,7 +1947,10 @@
 
     document.getElementById("paymentOrder").addEventListener("change", (event) => {
       const order = orders.find((item) => item.id === Number(event.target.value));
-      document.getElementById("updatePaidAmount").value = order ? getPaidAmount(order) : "";
+      document.getElementById("updatePaidAmount").value = "";
+      document.getElementById("updatePaidAmount").placeholder = order
+        ? `Current paid: ${formatMoney(getPaidAmount(order))}`
+        : "0";
     });
 
     document.getElementById("paymentUpdateForm").addEventListener("submit", async (event) => {
@@ -1961,7 +1967,10 @@
       order.status = getPaymentStatus(order);
       await updatePaymentInSupabase(order);
       renderDashboard();
-      document.getElementById("updatePaidAmount").value = getPaidAmount(order);
+      document.getElementById("paymentUpdateForm").reset();
+      document.getElementById("paymentOrder").value = order.id;
+      document.getElementById("updatePaidAmount").value = "";
+      document.getElementById("updatePaidAmount").placeholder = `Current paid: ${formatMoney(getPaidAmount(order))}`;
     });
 
     document.getElementById("expenseForm").addEventListener("submit", async (event) => {
