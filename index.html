@@ -987,6 +987,7 @@
                   <th>Total Amount</th>
                   <th>Paid Amount</th>
                   <th>Due Amount</th>
+                  <th>Advance</th>
                   <th>Payment Status</th>
                   <th>Order Date</th>
                 </tr>
@@ -1009,8 +1010,8 @@
             </div>
 
             <div class="form-field">
-              <label for="updatePaidAmount">Paid Amount</label>
-              <input id="updatePaidAmount" name="updatePaidAmount" type="number" min="0" step="1" placeholder="0" required>
+              <label for="updatePaidAmount">Payment Received Now</label>
+              <input id="updatePaidAmount" name="updatePaidAmount" type="number" min="0" step="1" placeholder="Enter received amount" required>
             </div>
 
             <div class="form-actions">
@@ -1049,6 +1050,10 @@
               <div class="report-label">Remaining Due</div>
               <p class="report-value" id="historyDue">Rs 0</p>
             </article>
+            <article class="report-card">
+              <div class="report-label">Advance Credit</div>
+              <p class="report-value" id="historyAdvance">Rs 0</p>
+            </article>
           </div>
 
           <div class="table-wrap">
@@ -1059,6 +1064,7 @@
                   <th>Total Amount</th>
                   <th>Paid Amount</th>
                   <th>Due Amount</th>
+                  <th>Advance</th>
                   <th>Payment Status</th>
                   <th>Order Date</th>
                 </tr>
@@ -1312,7 +1318,7 @@
       customer: order.customer,
       details: order.details,
       total_amount: order.total,
-      paid_amount: getPaidAmount(order),
+      paid_amount: getRawPaidAmount(order),
       status: getPaymentStatus(order),
       order_date: order.date
     });
@@ -1405,9 +1411,64 @@
 
     const getCustomerOrders = (customer) => orders.filter((order) => order.customer === customer);
 
-    const getPaidAmount = (order) => Math.min(Number(order.paidAmount) || 0, order.total);
+    const getRawPaidAmount = (order) => Math.max(Number(order.paidAmount) || 0, 0);
 
-    const getDueAmount = (order) => Math.max(order.total - getPaidAmount(order), 0);
+    const sortOrdersForLedger = (customerOrders) => [...customerOrders].sort((firstOrder, secondOrder) => {
+      const firstDate = new Date(firstOrder.date).getTime() || 0;
+      const secondDate = new Date(secondOrder.date).getTime() || 0;
+
+      if (firstDate !== secondDate) {
+        return firstDate - secondDate;
+      }
+
+      return Number(firstOrder.id) - Number(secondOrder.id);
+    });
+
+    const getCustomerLedger = (customer) => {
+      let advanceCredit = 0;
+      const ledger = new Map();
+
+      sortOrdersForLedger(getCustomerOrders(customer)).forEach((order) => {
+        const receivedAmount = getRawPaidAmount(order);
+        const availableAmount = receivedAmount + advanceCredit;
+        const paidAmount = Math.min(availableAmount, order.total);
+        const dueAmount = Math.max(order.total - availableAmount, 0);
+
+        advanceCredit = Math.max(availableAmount - order.total, 0);
+
+        ledger.set(order.id, {
+          receivedAmount,
+          paidAmount,
+          dueAmount,
+          advanceAmount: advanceCredit
+        });
+      });
+
+      return ledger;
+    };
+
+    const getOrderPaymentInfo = (order) => getCustomerLedger(order.customer).get(order.id) || {
+      receivedAmount: getRawPaidAmount(order),
+      paidAmount: Math.min(getRawPaidAmount(order), order.total),
+      dueAmount: Math.max(order.total - getRawPaidAmount(order), 0),
+      advanceAmount: Math.max(getRawPaidAmount(order) - order.total, 0)
+    };
+
+    const getPaidAmount = (order) => getOrderPaymentInfo(order).paidAmount;
+
+    const getDueAmount = (order) => getOrderPaymentInfo(order).dueAmount;
+
+    const getAdvanceAmount = (order) => getOrderPaymentInfo(order).advanceAmount;
+
+    const getCustomerAdvanceAmount = (customer) => {
+      const customerOrders = sortOrdersForLedger(getCustomerOrders(customer));
+
+      if (customerOrders.length === 0) {
+        return 0;
+      }
+
+      return getAdvanceAmount(customerOrders[customerOrders.length - 1]);
+    };
 
     const getPaymentStatus = (order) => {
       const paidAmount = getPaidAmount(order);
@@ -1513,7 +1574,7 @@
         const { error } = await supabaseClient
           .from("orders")
           .update({
-            paid_amount: getPaidAmount(order),
+            paid_amount: getRawPaidAmount(order),
             status: getPaymentStatus(order)
           })
           .eq("id", order.id);
@@ -1558,11 +1619,13 @@
       const totalWork = customerOrders.reduce((sum, order) => sum + order.total, 0);
       const paidAmount = customerOrders.reduce((sum, order) => sum + getPaidAmount(order), 0);
       const dueAmount = customerOrders.reduce((sum, order) => sum + getDueAmount(order), 0);
+      const advanceAmount = getCustomerAdvanceAmount(customer);
 
       document.getElementById("historyOrders").textContent = customerOrders.length;
       document.getElementById("historyWork").textContent = formatMoney(totalWork);
       document.getElementById("historyPaid").textContent = formatMoney(paidAmount);
       document.getElementById("historyDue").textContent = formatMoney(dueAmount);
+      document.getElementById("historyAdvance").textContent = formatMoney(advanceAmount);
 
       document.getElementById("historyTable").innerHTML = customerOrders.map((order) => `
         <tr>
@@ -1570,12 +1633,13 @@
           <td class="money">${formatMoney(order.total)}</td>
           <td class="money">${formatMoney(getPaidAmount(order))}</td>
           <td class="money">${formatMoney(getDueAmount(order))}</td>
+          <td class="money">${formatMoney(getAdvanceAmount(order))}</td>
           <td><span class="status ${getStatusClass(order)}">${getPaymentStatus(order)}</span></td>
           <td>${formatDate(order.date)}</td>
         </tr>
       `).join("") || `
         <tr>
-          <td colspan="6">No history found for this customer.</td>
+          <td colspan="7">No history found for this customer.</td>
         </tr>
       `;
     };
@@ -1593,6 +1657,7 @@
       const totalWork = invoiceOrders.reduce((sum, order) => sum + order.total, 0);
       const paidAmount = invoiceOrders.reduce((sum, order) => sum + getPaidAmount(order), 0);
       const dueAmount = invoiceOrders.reduce((sum, order) => sum + getDueAmount(order), 0);
+      const advanceAmount = getCustomerAdvanceAmount(customer);
 
       document.getElementById("invoiceOrderOptions").innerHTML = customerOrders.map((order) => `
         <tr>
@@ -1646,7 +1711,9 @@
               </tr>
               <tr>
                 <th>Remaining Due</th>
-                <td colspan="3"><strong>${formatMoney(dueAmount)}</strong></td>
+                <td><strong>${formatMoney(dueAmount)}</strong></td>
+                <th>Advance Credit</th>
+                <td><strong>${formatMoney(advanceAmount)}</strong></td>
               </tr>
             </tbody>
           </table>
@@ -1696,6 +1763,10 @@
                   <td>Remaining Due</td>
                   <td>${formatMoney(dueAmount)}</td>
                 </tr>
+                <tr>
+                  <td>Advance Credit</td>
+                  <td>${formatMoney(advanceAmount)}</td>
+                </tr>
               </tbody>
             </table>
           </div>
@@ -1710,8 +1781,9 @@
       const totalWork = invoiceOrders.reduce((sum, order) => sum + order.total, 0);
       const paidAmount = invoiceOrders.reduce((sum, order) => sum + getPaidAmount(order), 0);
       const dueAmount = invoiceOrders.reduce((sum, order) => sum + getDueAmount(order), 0);
+      const advanceAmount = getCustomerAdvanceAmount(customer);
 
-      return { customer, invoiceOrders, totalWork, paidAmount, dueAmount };
+      return { customer, invoiceOrders, totalWork, paidAmount, dueAmount, advanceAmount };
     };
 
     const drawWrappedText = (ctx, text, x, y, maxWidth, lineHeight) => {
@@ -1739,7 +1811,7 @@
     };
 
     const createInvoiceJpgBlob = () => new Promise((resolve) => {
-      const { customer, invoiceOrders, totalWork, paidAmount, dueAmount } = getInvoiceData();
+      const { customer, invoiceOrders, totalWork, paidAmount, dueAmount, advanceAmount } = getInvoiceData();
       const canvas = document.createElement("canvas");
       const ctx = canvas.getContext("2d");
       const width = 1200;
@@ -1783,6 +1855,7 @@
       ctx.fillText(`Total Work: ${formatMoney(totalWork)}`, 650, 276);
       ctx.fillText(`Paid: ${formatMoney(paidAmount)}`, 650, 312);
       ctx.fillText(`Due: ${formatMoney(dueAmount)}`, 900, 312);
+      ctx.fillText(`Advance: ${formatMoney(advanceAmount)}`, 900, 276);
 
       let y = 390;
       const columns = [60, 130, 300, 820, 1000];
@@ -1811,12 +1884,13 @@
 
       y += 24;
       ctx.fillStyle = "#233a5b";
-      ctx.fillRect(780, y, 370, 118);
+      ctx.fillRect(780, y, 370, 150);
       ctx.fillStyle = "#ffffff";
       ctx.font = "700 20px Arial";
       ctx.fillText(`Total Work: ${formatMoney(totalWork)}`, 810, y + 35);
       ctx.fillText(`Paid Amount: ${formatMoney(paidAmount)}`, 810, y + 70);
       ctx.fillText(`Remaining Due: ${formatMoney(dueAmount)}`, 810, y + 105);
+      ctx.fillText(`Advance Credit: ${formatMoney(advanceAmount)}`, 810, y + 140);
 
       canvas.toBlob((blob) => resolve(blob), "image/jpeg", 0.95);
     });
@@ -1870,23 +1944,25 @@
             <td class="money">${formatMoney(order.total)}</td>
             <td class="money">${formatMoney(getPaidAmount(order))}</td>
             <td class="money">${formatMoney(getDueAmount(order))}</td>
+            <td class="money">${formatMoney(getAdvanceAmount(order))}</td>
             <td><span class="status ${statusClass}">${getPaymentStatus(order)}</span></td>
             <td>${formatDate(order.date)}</td>
           </tr>
         `;
       }).join("");
 
+      const currentPaymentOrderId = Number(document.getElementById("paymentOrder").value);
       document.getElementById("paymentOrder").innerHTML = orders.map((order) => `
         <option value="${order.id}">
-          ${escapeHtml(order.customer)} - ${formatDate(order.date)} - Due ${formatMoney(getDueAmount(order))}
+          ${escapeHtml(order.customer)} - ${formatDate(order.date)} - Due ${formatMoney(getDueAmount(order))} - Advance ${formatMoney(getAdvanceAmount(order))}
         </option>
       `).join("");
 
-      const selectedPaymentOrder = orders.find((order) => order.id === Number(document.getElementById("paymentOrder").value)) || orders[0];
+      const selectedPaymentOrder = orders.find((order) => order.id === currentPaymentOrderId) || orders[0];
       document.getElementById("paymentOrder").value = selectedPaymentOrder ? selectedPaymentOrder.id : "";
       document.getElementById("updatePaidAmount").placeholder = selectedPaymentOrder
-        ? `Current paid: ${formatMoney(getPaidAmount(selectedPaymentOrder))}`
-        : "0";
+        ? `Received so far: ${formatMoney(getRawPaidAmount(selectedPaymentOrder))}`
+        : "Enter received amount";
 
       document.getElementById("unpaidList").innerHTML = dueOrders.map((order) => `
         <article class="due-card">
@@ -1894,6 +1970,7 @@
           <p>${escapeHtml(order.details)}</p>
           <p>Order date: ${formatDate(order.date)}</p>
           <p>Paid: ${formatMoney(getPaidAmount(order))}</p>
+          <p>Advance: ${formatMoney(getAdvanceAmount(order))}</p>
           <div class="due-amount">${formatMoney(getDueAmount(order))}</div>
         </article>
       `).join("");
@@ -1949,8 +2026,8 @@
       const order = orders.find((item) => item.id === Number(event.target.value));
       document.getElementById("updatePaidAmount").value = "";
       document.getElementById("updatePaidAmount").placeholder = order
-        ? `Current paid: ${formatMoney(getPaidAmount(order))}`
-        : "0";
+        ? `Received so far: ${formatMoney(getRawPaidAmount(order))}`
+        : "Enter received amount";
     });
 
     document.getElementById("paymentUpdateForm").addEventListener("submit", async (event) => {
@@ -1963,14 +2040,15 @@
         return;
       }
 
-      order.paidAmount = Math.min(Number(document.getElementById("updatePaidAmount").value) || 0, order.total);
+      const receivedNow = Number(document.getElementById("updatePaidAmount").value) || 0;
+      order.paidAmount = getRawPaidAmount(order) + receivedNow;
       order.status = getPaymentStatus(order);
       await updatePaymentInSupabase(order);
       renderDashboard();
       document.getElementById("paymentUpdateForm").reset();
       document.getElementById("paymentOrder").value = order.id;
       document.getElementById("updatePaidAmount").value = "";
-      document.getElementById("updatePaidAmount").placeholder = `Current paid: ${formatMoney(getPaidAmount(order))}`;
+      document.getElementById("updatePaidAmount").placeholder = `Received so far: ${formatMoney(getRawPaidAmount(order))}`;
     });
 
     document.getElementById("expenseForm").addEventListener("submit", async (event) => {
