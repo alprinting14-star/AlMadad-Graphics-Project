@@ -1287,10 +1287,10 @@
               <div class="backup-actions">
                 <button class="primary-btn" type="button" id="downloadBackup">Download Backup</button>
                 <label class="secondary-btn" for="restoreBackupFile">Restore Backup</label>
-                <input id="restoreBackupFile" type="file" accept="application/json,.json" hidden>
+                <input id="restoreBackupFile" type="file" accept="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,.xlsx" hidden>
               </div>
             </div>
-            <p class="backup-note">Keep the downloaded file in Google Drive, iCloud, or another safe folder.</p>
+            <p class="backup-note">Keep the downloaded Excel file in Google Drive, iCloud, or another safe folder.</p>
             <p class="backup-message" id="backupMessage" role="status"></p>
           </div>
         </section>
@@ -1300,6 +1300,7 @@
     </main>
   </div>
 
+  <script src="https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <script>
     const sampleOrders = [
@@ -1665,11 +1666,97 @@
 
       return {
         app: businessInfo.softwareName,
-        version: 1,
+        version: 2,
         createdAt: new Date().toISOString(),
         orders: ordersResult.data,
         expenses: expensesResult.data
       };
+    };
+
+    const toExcelDate = (value) => {
+      if (!value) {
+        return "";
+      }
+
+      const date = new Date(value);
+      return Number.isNaN(date.getTime()) ? String(value) : date;
+    };
+
+    const setExcelColumnFormat = (sheet, columnIndex, startRow, endRow, format) => {
+      for (let rowIndex = startRow; rowIndex <= endRow; rowIndex += 1) {
+        const cell = sheet[XLSX.utils.encode_cell({ r: rowIndex, c: columnIndex })];
+
+        if (cell) {
+          cell.z = format;
+        }
+      }
+    };
+
+    const createExcelBackup = (backup) => {
+      if (!window.XLSX) {
+        throw new Error("Excel tools could not load. Check your internet connection.");
+      }
+
+      const workbook = XLSX.utils.book_new();
+      const infoRows = [
+        ["Al Madad Graphics Backup", ""],
+        ["Application", backup.app],
+        ["Backup Version", backup.version],
+        ["Created At", toExcelDate(backup.createdAt)],
+        ["Total Orders", backup.orders.length],
+        ["Total Expenses", backup.expenses.length]
+      ];
+      const orderRows = backup.orders.map((order) => [
+        Number(order.id),
+        order.customer,
+        order.details,
+        Number(order.total_amount),
+        Number(order.paid_amount),
+        order.status,
+        toExcelDate(order.order_date),
+        toExcelDate(order.created_at)
+      ]);
+      const expenseRows = backup.expenses.map((expense) => [
+        Number(expense.id),
+        expense.details,
+        Number(expense.amount),
+        toExcelDate(expense.expense_date),
+        toExcelDate(expense.created_at)
+      ]);
+      const infoSheet = XLSX.utils.aoa_to_sheet(infoRows, { cellDates: true });
+      const ordersSheet = XLSX.utils.aoa_to_sheet([
+        ["ID", "Customer Name", "Order Details", "Total Amount", "Paid Amount", "Payment Status", "Order Date", "Created At"],
+        ...orderRows
+      ], { cellDates: true });
+      const expensesSheet = XLSX.utils.aoa_to_sheet([
+        ["ID", "Expense Details", "Amount", "Expense Date", "Created At"],
+        ...expenseRows
+      ], { cellDates: true });
+
+      infoSheet["!cols"] = [{ wch: 22 }, { wch: 34 }];
+      ordersSheet["!cols"] = [
+        { wch: 10 }, { wch: 24 }, { wch: 48 }, { wch: 16 },
+        { wch: 16 }, { wch: 16 }, { wch: 14 }, { wch: 22 }
+      ];
+      expensesSheet["!cols"] = [
+        { wch: 10 }, { wch: 48 }, { wch: 16 }, { wch: 14 }, { wch: 22 }
+      ];
+      ordersSheet["!autofilter"] = { ref: `A1:H${Math.max(orderRows.length + 1, 1)}` };
+      expensesSheet["!autofilter"] = { ref: `A1:E${Math.max(expenseRows.length + 1, 1)}` };
+
+      setExcelColumnFormat(infoSheet, 1, 3, 3, "yyyy-mm-dd hh:mm");
+      setExcelColumnFormat(ordersSheet, 3, 1, orderRows.length, "#,##0");
+      setExcelColumnFormat(ordersSheet, 4, 1, orderRows.length, "#,##0");
+      setExcelColumnFormat(ordersSheet, 6, 1, orderRows.length, "yyyy-mm-dd");
+      setExcelColumnFormat(ordersSheet, 7, 1, orderRows.length, "yyyy-mm-dd hh:mm");
+      setExcelColumnFormat(expensesSheet, 2, 1, expenseRows.length, "#,##0");
+      setExcelColumnFormat(expensesSheet, 3, 1, expenseRows.length, "yyyy-mm-dd");
+      setExcelColumnFormat(expensesSheet, 4, 1, expenseRows.length, "yyyy-mm-dd hh:mm");
+
+      XLSX.utils.book_append_sheet(workbook, infoSheet, "Backup Info");
+      XLSX.utils.book_append_sheet(workbook, ordersSheet, "Orders");
+      XLSX.utils.book_append_sheet(workbook, expensesSheet, "Expenses");
+      return workbook;
     };
 
     const downloadMonthlyBackup = async () => {
@@ -1678,15 +1765,9 @@
 
       const backup = await getLiveBackupData();
       const backupDate = backup.createdAt.slice(0, 10);
-      const blob = new Blob([JSON.stringify(backup, null, 2)], { type: "application/json" });
-      const link = document.createElement("a");
+      const workbook = createExcelBackup(backup);
 
-      link.href = URL.createObjectURL(blob);
-      link.download = `al-madad-backup-${backupDate}.json`;
-      document.body.appendChild(link);
-      link.click();
-      link.remove();
-      URL.revokeObjectURL(link.href);
+      XLSX.writeFile(workbook, `al-madad-backup-${backupDate}.xlsx`, { compression: true });
 
       localStorage.setItem(BACKUP_STORAGE_KEY, backup.createdAt);
       backupMessage.className = "backup-message success";
@@ -1696,11 +1777,77 @@
 
     const isValidBackup = (backup) => backup
       && backup.app === businessInfo.softwareName
-      && backup.version === 1
+      && backup.version === 2
       && Array.isArray(backup.orders)
       && Array.isArray(backup.expenses)
       && backup.orders.every((order) => order.customer && order.details && order.order_date)
       && backup.expenses.every((expense) => expense.details && expense.expense_date);
+
+    const excelDateToIsoDate = (value) => {
+      if (value instanceof Date && !Number.isNaN(value.getTime())) {
+        return [
+          value.getFullYear(),
+          String(value.getMonth() + 1).padStart(2, "0"),
+          String(value.getDate()).padStart(2, "0")
+        ].join("-");
+      }
+
+      const text = String(value || "").trim();
+      const matchedDate = text.match(/^\d{4}-\d{2}-\d{2}/);
+      return matchedDate ? matchedDate[0] : "";
+    };
+
+    const excelDateToIsoTimestamp = (value) => {
+      if (value instanceof Date && !Number.isNaN(value.getTime())) {
+        return value.toISOString();
+      }
+
+      const date = new Date(value);
+      return Number.isNaN(date.getTime()) ? new Date().toISOString() : date.toISOString();
+    };
+
+    const parseExcelBackup = async (file) => {
+      if (!window.XLSX) {
+        throw new Error("Excel tools could not load. Check your internet connection.");
+      }
+
+      const workbook = XLSX.read(await file.arrayBuffer(), { type: "array", cellDates: true });
+      const infoSheet = workbook.Sheets["Backup Info"];
+      const ordersSheet = workbook.Sheets.Orders;
+      const expensesSheet = workbook.Sheets.Expenses;
+
+      if (!infoSheet || !ordersSheet || !expensesSheet) {
+        throw new Error("This Excel file is missing one or more backup sheets.");
+      }
+
+      const infoRows = XLSX.utils.sheet_to_json(infoSheet, { header: 1, defval: "" });
+      const info = Object.fromEntries(infoRows.slice(1).map((row) => [String(row[0]), row[1]]));
+      const orderRows = XLSX.utils.sheet_to_json(ordersSheet, { defval: "" });
+      const expenseRows = XLSX.utils.sheet_to_json(expensesSheet, { defval: "" });
+
+      return {
+        app: String(info.Application || ""),
+        version: Number(info["Backup Version"]),
+        createdAt: excelDateToIsoTimestamp(info["Created At"]),
+        orders: orderRows.map((order) => ({
+          id: Number(order.ID),
+          customer: String(order["Customer Name"] || "").trim(),
+          details: String(order["Order Details"] || "").trim(),
+          total_amount: Number(order["Total Amount"]),
+          paid_amount: Number(order["Paid Amount"]),
+          status: String(order["Payment Status"] || "Unpaid"),
+          order_date: excelDateToIsoDate(order["Order Date"]),
+          created_at: excelDateToIsoTimestamp(order["Created At"])
+        })),
+        expenses: expenseRows.map((expense) => ({
+          id: Number(expense.ID),
+          details: String(expense["Expense Details"] || "").trim(),
+          amount: Number(expense.Amount),
+          expense_date: excelDateToIsoDate(expense["Expense Date"]),
+          created_at: excelDateToIsoTimestamp(expense["Created At"])
+        }))
+      };
+    };
 
     const orderBackupKey = (order) => [
       order.customer,
@@ -2396,10 +2543,10 @@
       }
 
       try {
-        const backup = JSON.parse(await file.text());
+        const backup = await parseExcelBackup(file);
 
         if (!isValidBackup(backup)) {
-          throw new Error("This is not a valid Al Madad Graphics backup file.");
+          throw new Error("This is not a valid Al Madad Graphics Excel backup file.");
         }
 
         const shouldRestore = window.confirm(
