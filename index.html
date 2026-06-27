@@ -189,6 +189,10 @@
       margin-bottom: 24px;
     }
 
+    .backup-summary {
+      grid-template-columns: repeat(3, minmax(160px, 1fr));
+    }
+
     .stat-card,
     .report-card,
     .panel {
@@ -1253,7 +1257,7 @@
       </section>
 
       <section class="page" id="backup" data-title="Monthly Backup" data-subtitle="Download and restore a secure copy of your business records.">
-        <div class="reports-grid" aria-label="Backup summary">
+        <div class="reports-grid backup-summary" aria-label="Backup summary">
           <article class="report-card">
             <div class="report-label">Last Backup</div>
             <p class="report-value" id="lastBackupDate">Not created</p>
