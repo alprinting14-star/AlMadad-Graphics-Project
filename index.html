@@ -363,6 +363,84 @@
       background: #124f63;
     }
 
+    .secondary-btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 11px 18px;
+      min-height: 46px;
+      background: #ffffff;
+      color: var(--text);
+      font: inherit;
+      font-weight: 700;
+      cursor: pointer;
+    }
+
+    .secondary-btn:hover {
+      border-color: #9ccbd4;
+      background: var(--brand-soft);
+      color: var(--brand);
+    }
+
+    .backup-content {
+      display: grid;
+      gap: 20px;
+      padding: 20px;
+    }
+
+    .backup-status {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 18px;
+      padding: 16px;
+      border: 1px solid #b8dfca;
+      border-radius: 8px;
+      background: #f2fbf6;
+    }
+
+    .backup-status.due {
+      border-color: #efc2c2;
+      background: #fff6f6;
+    }
+
+    .backup-status strong,
+    .backup-status span {
+      display: block;
+    }
+
+    .backup-status span,
+    .backup-note,
+    .backup-message {
+      color: var(--muted);
+      font-size: 14px;
+    }
+
+    .backup-status span {
+      margin-top: 4px;
+    }
+
+    .backup-actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+    }
+
+    .backup-note,
+    .backup-message {
+      margin: 0;
+    }
+
+    .backup-message.success {
+      color: #087443;
+    }
+
+    .backup-message.error {
+      color: #b42318;
+    }
+
     .filters {
       display: grid;
       grid-template-columns: repeat(4, minmax(170px, 1fr));
@@ -747,6 +825,11 @@
         display: grid;
       }
 
+      .backup-status {
+        align-items: flex-start;
+        flex-direction: column;
+      }
+
       .date-pill {
         width: fit-content;
       }
@@ -868,6 +951,7 @@
         <a href="#orders">Orders</a>
         <a href="#expenses">Expenses</a>
         <a href="#invoices">Invoices</a>
+        <a href="#backup">Backup</a>
       </nav>
     </aside>
 
@@ -1168,6 +1252,46 @@
         </section>
       </section>
 
+      <section class="page" id="backup" data-title="Monthly Backup" data-subtitle="Download and restore a secure copy of your business records.">
+        <div class="reports-grid" aria-label="Backup summary">
+          <article class="report-card">
+            <div class="report-label">Last Backup</div>
+            <p class="report-value" id="lastBackupDate">Not created</p>
+          </article>
+          <article class="report-card">
+            <div class="report-label">Orders</div>
+            <p class="report-value" id="backupOrderCount">0</p>
+          </article>
+          <article class="report-card">
+            <div class="report-label">Expenses</div>
+            <p class="report-value" id="backupExpenseCount">0</p>
+          </article>
+        </div>
+
+        <section class="panel">
+          <div class="panel-header">
+            <h3>Business Data Backup</h3>
+            <span>Orders, payments, customers, and expenses</span>
+          </div>
+
+          <div class="backup-content">
+            <div class="backup-status due" id="backupStatus">
+              <div>
+                <strong id="backupStatusTitle">Monthly backup is due</strong>
+                <span id="backupStatusText">Create your first backup today.</span>
+              </div>
+              <div class="backup-actions">
+                <button class="primary-btn" type="button" id="downloadBackup">Download Backup</button>
+                <label class="secondary-btn" for="restoreBackupFile">Restore Backup</label>
+                <input id="restoreBackupFile" type="file" accept="application/json,.json" hidden>
+              </div>
+            </div>
+            <p class="backup-note">Keep the downloaded file in Google Drive, iCloud, or another safe folder.</p>
+            <p class="backup-message" id="backupMessage" role="status"></p>
+          </div>
+        </section>
+      </section>
+
       <footer>Built for small printing shops to track orders, payments, expenses, and balance at a glance.</footer>
     </main>
   </div>
@@ -1349,11 +1473,14 @@
     const invoiceCustomer = document.getElementById("invoiceCustomer");
     const historyCustomer = document.getElementById("historyCustomer");
     const customerSuggestions = document.getElementById("customerSuggestions");
+    const backupMessage = document.getElementById("backupMessage");
     const orderTabButtons = Array.from(document.querySelectorAll("[data-order-tab]"));
     const orderTabPanels = Array.from(document.querySelectorAll(".order-tab-panel"));
     let nextOrderId = Math.max(...orders.map((order) => order.id)) + 1;
     let selectedInvoiceOrderIds = new Set();
     let currentInvoiceCustomer = "";
+    const BACKUP_STORAGE_KEY = "alMadadLastBackupAt";
+    const BACKUP_INTERVAL_DAYS = 30;
 
     const showLogin = (message = "") => {
       authScreen.classList.remove("hidden");
@@ -1485,6 +1612,147 @@
     };
 
     const getStatusClass = (order) => getPaymentStatus(order).toLowerCase();
+
+    const renderBackupStatus = () => {
+      const lastBackupValue = localStorage.getItem(BACKUP_STORAGE_KEY);
+      const lastBackup = lastBackupValue ? new Date(lastBackupValue) : null;
+      const lastBackupIsValid = lastBackup && !Number.isNaN(lastBackup.getTime());
+      const daysSinceBackup = lastBackupIsValid
+        ? Math.floor((Date.now() - lastBackup.getTime()) / 86400000)
+        : BACKUP_INTERVAL_DAYS;
+      const backupIsDue = daysSinceBackup >= BACKUP_INTERVAL_DAYS;
+      const status = document.getElementById("backupStatus");
+
+      document.getElementById("lastBackupDate").textContent = lastBackupIsValid
+        ? formatDate(lastBackup.toISOString())
+        : "Not created";
+      document.getElementById("backupOrderCount").textContent = orders.length;
+      document.getElementById("backupExpenseCount").textContent = expenses.length;
+      status.classList.toggle("due", backupIsDue);
+      document.getElementById("backupStatusTitle").textContent = backupIsDue
+        ? "Monthly backup is due"
+        : "Backup is up to date";
+      document.getElementById("backupStatusText").textContent = lastBackupIsValid
+        ? (backupIsDue
+          ? `Last backup was ${daysSinceBackup} days ago.`
+          : `Next backup is due in ${BACKUP_INTERVAL_DAYS - daysSinceBackup} days.`)
+        : "Create your first backup today.";
+    };
+
+    const getLiveBackupData = async () => {
+      if (!supabaseClient) {
+        throw new Error("Supabase is not available.");
+      }
+
+      const [ordersResult, expensesResult] = await Promise.all([
+        supabaseClient
+          .from("orders")
+          .select("id, customer, details, total_amount, paid_amount, status, order_date, created_at")
+          .order("id", { ascending: true }),
+        supabaseClient
+          .from("expenses")
+          .select("id, details, amount, expense_date, created_at")
+          .order("id", { ascending: true })
+      ]);
+
+      if (ordersResult.error || expensesResult.error) {
+        throw ordersResult.error || expensesResult.error;
+      }
+
+      return {
+        app: businessInfo.softwareName,
+        version: 1,
+        createdAt: new Date().toISOString(),
+        orders: ordersResult.data,
+        expenses: expensesResult.data
+      };
+    };
+
+    const downloadMonthlyBackup = async () => {
+      backupMessage.className = "backup-message";
+      backupMessage.textContent = "Preparing backup...";
+
+      const backup = await getLiveBackupData();
+      const backupDate = backup.createdAt.slice(0, 10);
+      const blob = new Blob([JSON.stringify(backup, null, 2)], { type: "application/json" });
+      const link = document.createElement("a");
+
+      link.href = URL.createObjectURL(blob);
+      link.download = `al-madad-backup-${backupDate}.json`;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      URL.revokeObjectURL(link.href);
+
+      localStorage.setItem(BACKUP_STORAGE_KEY, backup.createdAt);
+      backupMessage.className = "backup-message success";
+      backupMessage.textContent = `Backup downloaded: ${backup.orders.length} orders and ${backup.expenses.length} expenses.`;
+      renderBackupStatus();
+    };
+
+    const isValidBackup = (backup) => backup
+      && backup.app === businessInfo.softwareName
+      && backup.version === 1
+      && Array.isArray(backup.orders)
+      && Array.isArray(backup.expenses)
+      && backup.orders.every((order) => order.customer && order.details && order.order_date)
+      && backup.expenses.every((expense) => expense.details && expense.expense_date);
+
+    const orderBackupKey = (order) => [
+      order.customer,
+      order.details,
+      Number(order.total_amount),
+      order.order_date
+    ].join("|");
+
+    const expenseBackupKey = (expense) => [
+      expense.details,
+      Number(expense.amount),
+      expense.expense_date
+    ].join("|");
+
+    const restoreBackup = async (backup) => {
+      const [ordersResult, expensesResult] = await Promise.all([
+        supabaseClient.from("orders").select("id, customer, details, total_amount, order_date"),
+        supabaseClient.from("expenses").select("id, details, amount, expense_date")
+      ]);
+
+      if (ordersResult.error || expensesResult.error) {
+        throw ordersResult.error || expensesResult.error;
+      }
+
+      const currentOrderIds = new Set(ordersResult.data.map((order) => Number(order.id)));
+      const currentExpenseIds = new Set(expensesResult.data.map((expense) => Number(expense.id)));
+      const currentOrderKeys = new Set(ordersResult.data.map(orderBackupKey));
+      const currentExpenseKeys = new Set(expensesResult.data.map(expenseBackupKey));
+      const ordersToUpdate = backup.orders.filter((order) => currentOrderIds.has(Number(order.id)));
+      const ordersToInsert = backup.orders
+        .filter((order) => !currentOrderIds.has(Number(order.id)) && !currentOrderKeys.has(orderBackupKey(order)))
+        .map(({ id, ...order }) => order);
+      const expensesToUpdate = backup.expenses.filter((expense) => currentExpenseIds.has(Number(expense.id)));
+      const expensesToInsert = backup.expenses
+        .filter((expense) => !currentExpenseIds.has(Number(expense.id)) && !currentExpenseKeys.has(expenseBackupKey(expense)))
+        .map(({ id, ...expense }) => expense);
+
+      const operations = [];
+
+      if (ordersToUpdate.length) operations.push(supabaseClient.from("orders").upsert(ordersToUpdate, { onConflict: "id" }));
+      if (ordersToInsert.length) operations.push(supabaseClient.from("orders").insert(ordersToInsert));
+      if (expensesToUpdate.length) operations.push(supabaseClient.from("expenses").upsert(expensesToUpdate, { onConflict: "id" }));
+      if (expensesToInsert.length) operations.push(supabaseClient.from("expenses").insert(expensesToInsert));
+
+      const results = await Promise.all(operations);
+      const failedResult = results.find((result) => result.error);
+
+      if (failedResult) {
+        throw failedResult.error;
+      }
+
+      return {
+        updated: ordersToUpdate.length + expensesToUpdate.length,
+        added: ordersToInsert.length + expensesToInsert.length
+      };
+    };
 
     const loadLiveData = async () => {
       if (!supabaseClient) {
@@ -1986,6 +2254,7 @@
       refreshCustomerFilters();
       renderCustomerHistory();
       renderInvoice();
+      renderBackupStatus();
     };
 
     document.getElementById("orderForm").addEventListener("submit", async (event) => {
@@ -2102,6 +2371,54 @@
         await shareInvoiceJpg();
       } catch (error) {
         document.getElementById("shareNote").textContent = "Sharing was cancelled or not supported. Try again or print the invoice.";
+      }
+    });
+
+    document.getElementById("downloadBackup").addEventListener("click", async () => {
+      try {
+        await downloadMonthlyBackup();
+      } catch (error) {
+        console.error("Backup download failed.", error);
+        backupMessage.className = "backup-message error";
+        backupMessage.textContent = "Backup could not be created. Check your internet connection and try again.";
+      }
+    });
+
+    document.getElementById("restoreBackupFile").addEventListener("change", async (event) => {
+      const file = event.target.files[0];
+
+      if (!file) {
+        return;
+      }
+
+      try {
+        const backup = JSON.parse(await file.text());
+
+        if (!isValidBackup(backup)) {
+          throw new Error("This is not a valid Al Madad Graphics backup file.");
+        }
+
+        const shouldRestore = window.confirm(
+          `Restore ${backup.orders.length} orders and ${backup.expenses.length} expenses? Existing records will be updated, and newer records will be kept.`
+        );
+
+        if (!shouldRestore) {
+          return;
+        }
+
+        backupMessage.className = "backup-message";
+        backupMessage.textContent = "Restoring backup...";
+        const result = await restoreBackup(backup);
+        await loadLiveData();
+        renderDashboard();
+        backupMessage.className = "backup-message success";
+        backupMessage.textContent = `Restore complete: ${result.updated} records updated and ${result.added} records added.`;
+      } catch (error) {
+        console.error("Backup restore failed.", error);
+        backupMessage.className = "backup-message error";
+        backupMessage.textContent = error.message || "Backup could not be restored.";
+      } finally {
+        event.target.value = "";
       }
     });
 

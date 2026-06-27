@@ -30,6 +30,7 @@ drop policy if exists "Allow logged in insert orders" on public.orders;
 drop policy if exists "Allow logged in update orders" on public.orders;
 drop policy if exists "Allow logged in read expenses" on public.expenses;
 drop policy if exists "Allow logged in insert expenses" on public.expenses;
+drop policy if exists "Allow logged in update expenses" on public.expenses;
 
 create policy "Allow logged in read orders"
 on public.orders
@@ -60,4 +61,11 @@ create policy "Allow logged in insert expenses"
 on public.expenses
 for insert
 to authenticated
+with check (auth.uid() is not null);
+
+create policy "Allow logged in update expenses"
+on public.expenses
+for update
+to authenticated
+using (auth.uid() is not null)
 with check (auth.uid() is not null);
